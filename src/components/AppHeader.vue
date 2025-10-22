@@ -6,16 +6,25 @@
       <span></span>
     </button>
     <h1>Agendum</h1>
-    <button @click="logout" class="logout-button">Logout</button>
+    <div class="header-actions">
+      <button @click="toggleDarkMode" class="dark-mode-button">{{ darkMode ? '☀️' : '🌙' }}</button>
+      <button @click="logout" class="logout-button">Logout</button>
+    </div>
   </header>
 </template>
 
 <script>
 export default {
   name: 'AppHeader',
+  props: {
+    darkMode: Boolean
+  },
   methods: {
     toggleSidebar() {
       this.$emit('toggle-sidebar')
+    },
+    toggleDarkMode() {
+      this.$emit('toggle-dark-mode')
     },
     logout() {
       this.$emit('logout')
@@ -59,6 +68,26 @@ h1 {
   font-size: 24px;
   font-weight: 600;
   flex: 1;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.dark-mode-button {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.dark-mode-button:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .logout-button {

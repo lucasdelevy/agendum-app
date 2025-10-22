@@ -5,10 +5,24 @@
       <h2>Week {{ weekNumber }} - {{ monthYear }}</h2>
       <button @click="nextWeek" class="nav-arrow">›</button>
     </div>
-    <div class="calendar-grid">
-      <div v-for="day in weekDays" :key="day.date" class="day-cell" :class="{ 'current-day': day.isToday }">
-        <div class="day-name">{{ day.dayName }}</div>
-        <div class="day-number">{{ day.dayNumber }}</div>
+    <div class="calendar-container">
+      <div class="time-column">
+        <div class="day-header"></div>
+        <div v-for="hour in hours" :key="hour" class="time-slot">{{ hour }}</div>
+      </div>
+      <div class="days-grid">
+        <div class="day-headers">
+          <div v-for="day in weekDays" :key="day.date" class="day-header" :class="{ 'current-day-header': day.isToday }">
+            <div class="day-name">{{ day.dayName }}</div>
+            <div class="day-number">{{ day.dayNumber }}</div>
+          </div>
+        </div>
+        <div class="calendar-body">
+          <div v-for="day in weekDays" :key="day.date" class="day-column" :class="{ 'current-day-column': day.isToday }" style="position: relative;">
+            <div v-for="hour in hours" :key="hour" class="hour-cell"></div>
+            <div class="current-time-bar" :style="{ top: currentTimePosition + 'px' }"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -41,6 +55,23 @@ export default {
       }
       return days
     },
+    hours() {
+      const hours = []
+      for (let i = 0; i < 24; i++) {
+        hours.push(i.toString().padStart(2, '0') + ':00')
+      }
+      return hours
+    },
+    currentHour() {
+      return new Date().getHours()
+    },
+    currentTimePosition() {
+      const now = new Date()
+      const hours = now.getHours()
+      const minutes = now.getMinutes()
+      const hourHeight = 40
+      return (hours * hourHeight) + (minutes / 60 * hourHeight)
+    },
     weekNumber() {
       return this.getWeekNumber(this.currentDate)
     },
@@ -69,14 +100,15 @@ export default {
     nextWeek() {
       this.currentDate.setDate(this.currentDate.getDate() + 7)
       this.currentDate = new Date(this.currentDate)
-    }
+    },
+
   }
 }
 </script>
 
 <style scoped>
 .weekly-calendar {
-  max-width: 800px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
@@ -103,38 +135,97 @@ export default {
   background: #0056b3;
 }
 
-.calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 1px;
+.calendar-container {
+  display: flex;
   border: 1px solid #ddd;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.day-cell {
-  background: white;
-  border: 1px solid #eee;
-  padding: 15px;
-  text-align: center;
-  min-height: 80px;
+.time-column {
+  width: 80px;
+  border-right: 1px solid #eee;
+}
+
+.time-column .day-header {
+  height: 60px;
+  border-bottom: 1px solid #eee;
+}
+
+.time-slot {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #666;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.days-grid {
+  flex: 1;
+}
+
+.day-headers {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.day-header {
+  height: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid #eee;
+  border-bottom: 1px solid #eee;
+}
+
+.current-day-header {
+  background: #e3f2fd;
 }
 
 .day-name {
   font-weight: bold;
   color: #666;
-  margin-bottom: 5px;
+  font-size: 12px;
 }
 
 .day-number {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: bold;
 }
 
-.current-day {
-  background: #e3f2fd !important;
-  border-color: #2196f3 !important;
+.current-day-header .day-number {
+  color: #1976d2;
 }
 
-.current-day .day-number {
-  color: #1976d2;
+.calendar-body {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.day-column {
+  border-right: 1px solid #eee;
+}
+
+.current-day-column {
+  background: #f0f8ff;
+}
+
+.hour-cell {
+  height: 40px;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.current-time-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  border-top: 1px dashed #dc3545;
+  z-index: 10;
+  opacity: 0.7;
 }
 </style>

@@ -6,6 +6,7 @@
       <span></span>
     </button>
     <h1>Agendum</h1>
+    <button @click="logout" class="logout-button">Logout</button>
   </header>
 </template>
 
@@ -15,6 +16,9 @@ export default {
   methods: {
     toggleSidebar() {
       this.$emit('toggle-sidebar')
+    },
+    logout() {
+      this.$emit('logout')
     }
   }
 }
@@ -54,5 +58,20 @@ h1 {
   margin: 0;
   font-size: 24px;
   font-weight: 600;
+  flex: 1;
+}
+
+.logout-button {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.logout-button:hover {
+  background: #c82333;
 }
 </style>

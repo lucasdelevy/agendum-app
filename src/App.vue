@@ -2,11 +2,13 @@
   <div id="app" :class="{ 'dark-mode': darkMode }">
     <LoginPage v-if="!isLoggedIn" @login="handleLogin" />
     <div v-else>
-      <AppHeader :darkMode="darkMode" @toggle-sidebar="toggleSidebar" @toggle-dark-mode="toggleDarkMode" @logout="handleLogout" />
+      <AppHeader :darkMode="darkMode" @toggle-sidebar="toggleSidebar" @create-team="openCreateTeamModal" @toggle-dark-mode="toggleDarkMode" @logout="handleLogout" />
+      <TeamsList ref="teamsList" :userToken="user?.token" @team-selected="handleTeamSelected" />
       <Sidebar :isOpen="sidebarOpen" @close="closeSidebar" />
       <main class="main-content">
         <WeeklyCalendar />
       </main>
+      <CreateTeamModal :isOpen="showCreateTeamModal" :userToken="user?.token" @close="closeCreateTeamModal" @team-created="handleTeamCreated" />
     </div>
   </div>
 </template>
@@ -14,23 +16,28 @@
 <script>
 import LoginPage from './components/LoginPage.vue'
 import AppHeader from './components/AppHeader.vue'
+import TeamsList from './components/TeamsList.vue'
 import Sidebar from './components/Sidebar.vue'
 import WeeklyCalendar from './components/WeeklyCalendar.vue'
+import CreateTeamModal from './components/CreateTeamModal.vue'
 
 export default {
   name: 'App',
   components: {
     LoginPage,
     AppHeader,
+    TeamsList,
     Sidebar,
-    WeeklyCalendar
+    WeeklyCalendar,
+    CreateTeamModal
   },
   data() {
     return {
       isLoggedIn: false,
       user: null,
       sidebarOpen: false,
-      darkMode: false
+      darkMode: false,
+      showCreateTeamModal: false
     }
   },
   methods: {
@@ -54,6 +61,21 @@ export default {
     toggleDarkMode() {
       this.darkMode = !this.darkMode
       localStorage.setItem('agendum_dark_mode', this.darkMode)
+    },
+    openCreateTeamModal() {
+      this.showCreateTeamModal = true
+    },
+    closeCreateTeamModal() {
+      this.showCreateTeamModal = false
+    },
+    handleTeamCreated(teamData) {
+      console.log('Team created:', teamData)
+      // Refresh teams list after creation
+      this.$refs.teamsList.fetchTeams()
+    },
+    handleTeamSelected(team) {
+      console.log('Team selected:', team)
+      // Handle team selection (e.g., filter calendar by team)
     }
   },
   mounted() {

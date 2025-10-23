@@ -7,6 +7,7 @@
     </button>
     <h1>Agendum</h1>
     <div class="header-actions">
+      <button @click="createTeam" class="create-team-button">+ Team</button>
       <button @click="toggleDarkMode" class="dark-mode-button">{{ darkMode ? '☀️' : '🌙' }}</button>
       <button @click="logout" class="logout-button">Logout</button>
     </div>
@@ -22,6 +23,9 @@ export default {
   methods: {
     toggleSidebar() {
       this.$emit('toggle-sidebar')
+    },
+    createTeam() {
+      this.$emit('create-team')
     },
     toggleDarkMode() {
       this.$emit('toggle-dark-mode')
@@ -98,6 +102,21 @@ h1 {
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
+}
+
+.create-team-button {
+  background: #28a745;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.create-team-button:hover {
+  background: #218838;
 }
 
 .logout-button:hover {

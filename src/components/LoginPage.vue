@@ -41,21 +41,34 @@
         <button type="submit" class="login-button" :disabled="loading">
           {{ loading ? 'Signing In...' : 'Sign In' }}
         </button>
+        
+        <button type="button" @click="openSignUpModal" class="signup-link-button">
+          Don't have an account? Sign Up
+        </button>
       </form>
     </div>
+    
+    <SignUpModal :isOpen="showSignUpModal" @close="closeSignUpModal" @user-created="handleUserCreated" />
   </div>
 </template>
 
 <script>
+import SignUpModal from './SignUpModal.vue'
+import { API_BASE_URL } from '../config/api.js'
+
 export default {
   name: 'LoginPage',
+  components: {
+    SignUpModal
+  },
   data() {
     return {
       email: '',
       password: '',
       showPassword: false,
       loading: false,
-      error: ''
+      error: '',
+      showSignUpModal: false
     }
   },
   methods: {
@@ -64,7 +77,7 @@ export default {
       this.error = ''
       
       try {
-        const response = await fetch('https://m45tv0whpc.execute-api.us-east-1.amazonaws.com/prod/auth/login', {
+        const response = await fetch(`${API_BASE_URL}/auth/login`, {
           method: 'POST',
           mode: 'cors',
           headers: {
@@ -88,6 +101,16 @@ export default {
       } finally {
         this.loading = false
       }
+    },
+    openSignUpModal() {
+      this.showSignUpModal = true
+    },
+    closeSignUpModal() {
+      this.showSignUpModal = false
+    },
+    handleUserCreated(userData) {
+      console.log('User created:', userData)
+      // Optionally auto-login or show success message
     }
   }
 }
@@ -189,6 +212,20 @@ export default {
 .checkbox-group label {
   cursor: pointer;
   color: #666;
+}
+
+.signup-link-button {
+  background: none;
+  border: none;
+  color: #667eea;
+  font-size: 14px;
+  cursor: pointer;
+  text-decoration: underline;
+  margin-top: 10px;
+}
+
+.signup-link-button:hover {
+  color: #5a6fd8;
 }
 
 .error-message {

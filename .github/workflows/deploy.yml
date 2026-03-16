@@ -1,0 +1,314 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NODE_VERSION: "20"
+  APP_NAME: "agendum-app"
+
+jobs:
+  build:
+    name: Build App
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build app
+        run: npm run build
+
+  deploy:
+    name: Deploy to AWS
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Resolve deployment settings
+        env:
+          BUCKET_OVERRIDE: ${{ vars.AWS_STATIC_BUCKET }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          set -euo pipefail
+
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          echo "ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+
+          if [ -n "${BUCKET_OVERRIDE}" ]; then
+            BUCKET_NAME="${BUCKET_OVERRIDE}"
+          else
+            BUCKET_NAME="${APP_NAME}-${ACCOUNT_ID}-${AWS_REGION}"
+          fi
+
+          DISTRIBUTION_ID="$(aws ssm get-parameter \
+            --name "/${APP_NAME}/cloudfront_distribution_id" \
+            --query 'Parameter.Value' \
+            --output text 2>/dev/null || true)"
+
+          OAC_ID="$(aws ssm get-parameter \
+            --name "/${APP_NAME}/cloudfront_oac_id" \
+            --query 'Parameter.Value' \
+            --output text 2>/dev/null || true)"
+
+          echo "BUCKET_NAME=$BUCKET_NAME" >> "$GITHUB_ENV"
+          echo "DISTRIBUTION_ID=$DISTRIBUTION_ID" >> "$GITHUB_ENV"
+          echo "OAC_ID=$OAC_ID" >> "$GITHUB_ENV"
+          echo "S3_ORIGIN_DOMAIN=${BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com" >> "$GITHUB_ENV"
+
+      - name: Ensure S3 bucket exists and is private
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          set -euo pipefail
+
+          if ! aws s3api head-bucket --bucket "${BUCKET_NAME}" >/dev/null 2>&1; then
+            if [ "${AWS_REGION}" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket "${BUCKET_NAME}"
+            else
+              aws s3api create-bucket \
+                --bucket "${BUCKET_NAME}" \
+                --create-bucket-configuration "LocationConstraint=${AWS_REGION}"
+            fi
+          fi
+
+          aws s3api put-public-access-block \
+            --bucket "${BUCKET_NAME}" \
+            --public-access-block-configuration \
+            "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+
+          aws s3api put-bucket-ownership-controls \
+            --bucket "${BUCKET_NAME}" \
+            --ownership-controls 'Rules=[{ObjectOwnership=BucketOwnerEnforced}]'
+
+      - name: Ensure CloudFront Origin Access Control exists
+        run: |
+          set -euo pipefail
+
+          if [ -z "${OAC_ID}" ] || [ "${OAC_ID}" = "None" ]; then
+            EXISTING_OAC_ID="$(aws cloudfront list-origin-access-controls \
+              --query "OriginAccessControlList.Items[?Name=='${APP_NAME}-oac'].Id | [0]" \
+              --output text)"
+
+            if [ -n "${EXISTING_OAC_ID}" ] && [ "${EXISTING_OAC_ID}" != "None" ]; then
+              OAC_ID="${EXISTING_OAC_ID}"
+            else
+              cat > /tmp/oac-config.json <<JSON
+          {
+            "Name": "${APP_NAME}-oac",
+            "Description": "OAC for ${APP_NAME} static hosting",
+            "SigningProtocol": "sigv4",
+            "SigningBehavior": "always",
+            "OriginAccessControlOriginType": "s3"
+          }
+          JSON
+              OAC_ID="$(aws cloudfront create-origin-access-control \
+                --origin-access-control-config file:///tmp/oac-config.json \
+                --query 'OriginAccessControl.Id' \
+                --output text)"
+            fi
+
+            aws ssm put-parameter \
+              --name "/${APP_NAME}/cloudfront_oac_id" \
+              --type String \
+              --value "${OAC_ID}" \
+              --overwrite >/dev/null
+          fi
+
+          echo "OAC_ID=${OAC_ID}" >> "$GITHUB_ENV"
+
+      - name: Ensure CloudFront distribution exists
+        run: |
+          set -euo pipefail
+
+          CREATED_DISTRIBUTION=false
+          DISTRIBUTION_DOMAIN=""
+
+          if [ -n "${DISTRIBUTION_ID}" ] && [ "${DISTRIBUTION_ID}" != "None" ]; then
+            if aws cloudfront get-distribution --id "${DISTRIBUTION_ID}" >/dev/null 2>&1; then
+              DISTRIBUTION_DOMAIN="$(aws cloudfront get-distribution \
+                --id "${DISTRIBUTION_ID}" \
+                --query 'Distribution.DomainName' \
+                --output text)"
+            else
+              DISTRIBUTION_ID=""
+            fi
+          fi
+
+          if [ -z "${DISTRIBUTION_ID}" ] || [ "${DISTRIBUTION_ID}" = "None" ]; then
+            cat > /tmp/distribution-config.json <<JSON
+          {
+            "CallerReference": "${APP_NAME}-$(date +%s)",
+            "Comment": "${APP_NAME} static site distribution",
+            "Enabled": true,
+            "Origins": {
+              "Quantity": 1,
+              "Items": [
+                {
+                  "Id": "s3-origin",
+                  "DomainName": "${S3_ORIGIN_DOMAIN}",
+                  "S3OriginConfig": {
+                    "OriginAccessIdentity": ""
+                  },
+                  "OriginAccessControlId": "${OAC_ID}"
+                }
+              ]
+            },
+            "DefaultCacheBehavior": {
+              "TargetOriginId": "s3-origin",
+              "ViewerProtocolPolicy": "redirect-to-https",
+              "AllowedMethods": {
+                "Quantity": 2,
+                "Items": ["GET", "HEAD"],
+                "CachedMethods": {
+                  "Quantity": 2,
+                  "Items": ["GET", "HEAD"]
+                }
+              },
+              "Compress": true,
+              "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6"
+            },
+            "PriceClass": "PriceClass_100",
+            "Restrictions": {
+              "GeoRestriction": {
+                "RestrictionType": "none",
+                "Quantity": 0
+              }
+            },
+            "ViewerCertificate": {
+              "CloudFrontDefaultCertificate": true
+            },
+            "HttpVersion": "http2",
+            "IsIPV6Enabled": true
+          }
+          JSON
+
+            CREATE_OUTPUT="$(aws cloudfront create-distribution \
+              --distribution-config file:///tmp/distribution-config.json)"
+            DISTRIBUTION_ID="$(echo "${CREATE_OUTPUT}" | jq -r '.Distribution.Id')"
+            DISTRIBUTION_DOMAIN="$(echo "${CREATE_OUTPUT}" | jq -r '.Distribution.DomainName')"
+            CREATED_DISTRIBUTION=true
+
+            aws ssm put-parameter \
+              --name "/${APP_NAME}/cloudfront_distribution_id" \
+              --type String \
+              --value "${DISTRIBUTION_ID}" \
+              --overwrite >/dev/null
+          fi
+
+          if [ -z "${DISTRIBUTION_DOMAIN}" ]; then
+            DISTRIBUTION_DOMAIN="$(aws cloudfront get-distribution \
+              --id "${DISTRIBUTION_ID}" \
+              --query 'Distribution.DomainName' \
+              --output text)"
+          fi
+
+          aws ssm put-parameter \
+            --name "/${APP_NAME}/cloudfront_domain_name" \
+            --type String \
+            --value "${DISTRIBUTION_DOMAIN}" \
+            --overwrite >/dev/null
+
+          echo "DISTRIBUTION_ID=${DISTRIBUTION_ID}" >> "$GITHUB_ENV"
+          echo "DISTRIBUTION_DOMAIN=${DISTRIBUTION_DOMAIN}" >> "$GITHUB_ENV"
+          echo "CREATED_DISTRIBUTION=${CREATED_DISTRIBUTION}" >> "$GITHUB_ENV"
+
+      - name: Allow CloudFront to read S3 objects
+        run: |
+          set -euo pipefail
+
+          cat > /tmp/bucket-policy.json <<JSON
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "AllowCloudFrontServicePrincipalReadOnly",
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": "cloudfront.amazonaws.com"
+                },
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::${BUCKET_NAME}/*",
+                "Condition": {
+                  "StringEquals": {
+                    "AWS:SourceArn": "arn:aws:cloudfront::${ACCOUNT_ID}:distribution/${DISTRIBUTION_ID}"
+                  }
+                }
+              }
+            ]
+          }
+          JSON
+
+          aws s3api put-bucket-policy \
+            --bucket "${BUCKET_NAME}" \
+            --policy file:///tmp/bucket-policy.json
+
+      - name: Build app
+        run: npm run build
+
+      - name: Upload static files
+        run: |
+          set -euo pipefail
+
+          aws s3 sync dist/ "s3://${BUCKET_NAME}/" --delete
+
+          aws s3 cp \
+            dist/index.html \
+            "s3://${BUCKET_NAME}/index.html" \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+      - name: Wait for first-time distribution deployment
+        if: env.CREATED_DISTRIBUTION == 'true'
+        run: aws cloudfront wait distribution-deployed --id "${DISTRIBUTION_ID}"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${DISTRIBUTION_ID}" \
+            --paths "/*" >/dev/null
+
+      - name: Publish public URL
+        run: |
+          PUBLIC_URL="https://${DISTRIBUTION_DOMAIN}/"
+          echo "PUBLIC_URL=${PUBLIC_URL}" >> "$GITHUB_ENV"
+
+          {
+            echo "## Deployment complete"
+            echo ""
+            echo "- Public app URL: ${PUBLIC_URL}"
+            echo "- CloudFront Distribution: ${DISTRIBUTION_ID}"
+            echo "- S3 Bucket: ${BUCKET_NAME}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Public app URL: ${PUBLIC_URL}"

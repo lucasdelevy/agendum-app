@@ -72,20 +72,6 @@ jobs:
             BUCKET_NAME="${APP_NAME}-${ACCOUNT_ID}-${AWS_REGION}"
           fi
 
-          PRIVATE_PATH="$(aws ssm get-parameter \
-            --name "/${APP_NAME}/private_path" \
-            --query 'Parameter.Value' \
-            --output text 2>/dev/null || true)"
-
-          if [ -z "${PRIVATE_PATH}" ] || [ "${PRIVATE_PATH}" = "None" ]; then
-            PRIVATE_PATH="$(openssl rand -hex 18)"
-            aws ssm put-parameter \
-              --name "/${APP_NAME}/private_path" \
-              --type String \
-              --value "${PRIVATE_PATH}" \
-              --overwrite >/dev/null
-          fi
-
           DISTRIBUTION_ID="$(aws ssm get-parameter \
             --name "/${APP_NAME}/cloudfront_distribution_id" \
             --query 'Parameter.Value' \
@@ -97,7 +83,6 @@ jobs:
             --output text 2>/dev/null || true)"
 
           echo "BUCKET_NAME=$BUCKET_NAME" >> "$GITHUB_ENV"
-          echo "PRIVATE_PATH=$PRIVATE_PATH" >> "$GITHUB_ENV"
           echo "DISTRIBUTION_ID=$DISTRIBUTION_ID" >> "$GITHUB_ENV"
           echo "OAC_ID=$OAC_ID" >> "$GITHUB_ENV"
           echo "S3_ORIGIN_DOMAIN=${BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com" >> "$GITHUB_ENV"
@@ -289,18 +274,18 @@ jobs:
             --bucket "${BUCKET_NAME}" \
             --policy file:///tmp/bucket-policy.json
 
-      - name: Build app for private path
-        run: npm run build -- --base "/${PRIVATE_PATH}/"
+      - name: Build app
+        run: npm run build
 
       - name: Upload static files
         run: |
           set -euo pipefail
 
-          aws s3 sync dist/ "s3://${BUCKET_NAME}/${PRIVATE_PATH}/" --delete
+          aws s3 sync dist/ "s3://${BUCKET_NAME}/" --delete
 
           aws s3 cp \
             dist/index.html \
-            "s3://${BUCKET_NAME}/${PRIVATE_PATH}/index.html" \
+            "s3://${BUCKET_NAME}/index.html" \
             --cache-control "no-cache, no-store, must-revalidate"
 
       - name: Wait for first-time distribution deployment
@@ -311,19 +296,19 @@ jobs:
         run: |
           aws cloudfront create-invalidation \
             --distribution-id "${DISTRIBUTION_ID}" \
-            --paths "/${PRIVATE_PATH}/*" >/dev/null
+            --paths "/*" >/dev/null
 
-      - name: Publish private URL
+      - name: Publish public URL
         run: |
-          PRIVATE_URL="https://${DISTRIBUTION_DOMAIN}/${PRIVATE_PATH}/"
-          echo "PRIVATE_URL=${PRIVATE_URL}" >> "$GITHUB_ENV"
+          PUBLIC_URL="https://${DISTRIBUTION_DOMAIN}/"
+          echo "PUBLIC_URL=${PUBLIC_URL}" >> "$GITHUB_ENV"
 
           {
             echo "## Deployment complete"
             echo ""
-            echo "- Private app URL: ${PRIVATE_URL}"
+            echo "- Public app URL: ${PUBLIC_URL}"
             echo "- CloudFront Distribution: ${DISTRIBUTION_ID}"
             echo "- S3 Bucket: ${BUCKET_NAME}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "Private app URL: ${PRIVATE_URL}"
+          echo "Public app URL: ${PUBLIC_URL}"

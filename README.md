@@ -51,7 +51,7 @@ npm run build
 
 The built files will be in the `dist/` directory.
 
-## CI/CD: Automatic AWS Deployment + Private URL
+## CI/CD: Automatic AWS Deployment + Public URL
 
 This repo includes a GitHub Actions workflow at `.github/workflows/deploy.yml` that:
 
@@ -62,11 +62,11 @@ Deployment uses:
 
 - **S3** (private bucket for static files)
 - **CloudFront** (HTTPS delivery)
-- **SSM Parameter Store** (stores deployment metadata, including the private path)
+- **SSM Parameter Store** (stores deployment metadata)
 
-The workflow publishes a stable private URL in the run summary, with an unguessable path:
+The workflow publishes a stable public URL in the run summary:
 
-`https://<cloudfront-domain>/<private-path>/`
+`https://<cloudfront-domain>/`
 
 ### One-time setup: AWS OIDC for GitHub Actions
 
@@ -104,17 +104,16 @@ If `AWS_STATIC_BUCKET` is not set, the workflow creates/uses:
 
 `agendum-app-<account-id>-<region>`
 
-### Accessing your deployed private URL
+### Accessing your deployed public URL
 
 After each deploy run, open the GitHub Actions run and check the **Summary** section for:
 
-- Private app URL
+- Public app URL
 - CloudFront distribution ID
 - S3 bucket name
 
 You can also fetch the stored values from AWS Systems Manager Parameter Store:
 
-- `/agendum-app/private_path`
 - `/agendum-app/cloudfront_distribution_id`
 - `/agendum-app/cloudfront_domain_name`
 

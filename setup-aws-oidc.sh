@@ -66,7 +66,8 @@ check_existing_oidc() {
     if [ -n "$existing" ] && [ "$existing" != "None" ]; then
         warn "Found existing GitHub OIDC provider: $existing"
         warn "Reusing it (only one per account is needed)."
-        EXISTING_OIDC_ARN="$existing"
+        # Trim whitespace/newlines so CloudFormation gets a clean value
+        EXISTING_OIDC_ARN="$(echo "$existing" | tr -d '\n\r' | xargs)"
     fi
 }
 
@@ -77,7 +78,7 @@ deploy_stack() {
         "ParameterKey=GitHubOrg,ParameterValue=$GITHUB_ORG"
         "ParameterKey=GitHubRepo,ParameterValue=$GITHUB_REPO"
         "ParameterKey=DeployBranch,ParameterValue=$DEPLOY_BRANCH"
-        "ParameterKey=OIDCProviderArn,ParameterValue=$EXISTING_OIDC_ARN"
+        "ParameterKey=OIDCProviderArn,ParameterValue=${EXISTING_OIDC_ARN:-}"
     )
 
     aws cloudformation deploy \

@@ -41,7 +41,13 @@ export default {
         })
         
         if (response.ok) {
-          this.teams = await response.json()
+          const data = await response.json()
+          const seen = new Set()
+          this.teams = data.filter(team => {
+            if (seen.has(team.team_id)) return false
+            seen.add(team.team_id)
+            return true
+          })
         }
       } catch (err) {
         console.error('Failed to fetch teams:', err)
